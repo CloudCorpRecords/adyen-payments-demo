@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevRel Demo Store - Simulated Adyen-style Sessions Flow</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  .banner { background: #fff8e1; border: 1px solid #e0c36a; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.9rem; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+  label { display: block; margin: 0.5rem 0 0.2rem; font-size: 0.85rem; }
+  input, select { width: 100%; padding: 0.5rem; border: 1px solid #bbb; border-radius: 6px; box-sizing: border-box; }
+  button { margin-top: 1rem; padding: 0.6rem 1.2rem; background: #0abf53; color: #fff; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; }
+  button:disabled { background: #999; cursor: default; }
+  pre { background: #f4f4f4; padding: 0.75rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; }
+  .ok { color: #0a7a3a; font-weight: bold; }
+  .bad { color: #b00020; font-weight: bold; }
+  .hidden { display: none; }
+  table { border-collapse: collapse; font-size: 0.85rem; margin-top: 0.5rem; }
+  td, th { border: 1px solid #ccc; padding: 0.3rem 0.6rem; }
+</style>
+</head>
+<body>
+<div class="banner">
+  <strong>SIMULATED DEMO.</strong> Independent prototype built from Adyen's public documentation.
+  Not affiliated with Adyen. No real payment credentials are used and no real money moves.
+  The card form below is a <em>mock</em> Drop-in style UI, not Adyen's Web Drop-in component.
+</div>
+
+<h1>DevRel Demo Store</h1>
+<p>Checkout flow, Adyen Sessions style: create a session on the server, pay through the client form, then confirm the outcome from the HMAC-verified webhook log.</p>
+
+<div class="card" id="step1">
+  <h2>1. Create a payment session</h2>
+  <label>Amount (minor units, e.g. 1999 = $19.99)</label>
+  <input id="amount" type="number" value="1999" min="1">
+  <label>Currency</label>
+  <select id="currency"><option>USD</option><option>EUR</option><option>GBP</option></select>
+  <button id="createSession">Create session</button>
+  <pre id="sessionOut" class="hidden"></pre>
+</div>
+
+<div class="card hidden" id="step2">
+  <h2>2. Pay (mock Drop-in style form)</h2>
+  <p style="font-size:0.85rem">Demo test cards: <code>4111 1111 1111 1111</code> authorises, <code>4000 0000 0000 0002</code> is refused. Any expiry in the future, any 3 digit CVC.</p>
+  <label>Card holder</label><input id="holder" value="Simon Hopper">
+  <label>Card number</label><input id="pan" value="4111 1111 1111 1111" inputmode="numeric">
+  <label>Expiry month</label><input id="expM" value="12" maxlength="2">
+  <label>Expiry year</label><input id="expY" value="2030" maxlength="4">
+  <label>CVC</label><input id="cvc" value="737" maxlength="4" inputmode="numeric">
+  <button id="pay">Pay</button>
+  <pre id="payOut" class="hidden"></pre>
+</div>
+
+<div class="card hidden" id="step3">
+  <h2>3. Result and webhook log</h2>
+  <div id="resultLine"></div>
+  <button id="refreshHooks">Refresh verified webhooks</button>
+  <pre id="hooksOut">(no webhooks fetched yet)</pre>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let sessionId = null;
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = text; }
+  return { status: r.status, data };
+}
+
+$("createSession").onclick = async () => {
+  const btn = $("createSession"); btn.disabled = true;
+  const { status, data } = await post("/api/sessions", {
+    merchantAccount: "DEMO_MERCHANT",
+    amount: { currency: $("currency").value, value: Number($("amount").value) },
+    reference: "demo-order-" + Date.now(),
+    returnUrl: location.origin + "/done",
+    countryCode: "US"
+  });
+  btn.disabled = false;
+  const out = $("sessionOut"); out.classList.remove("hidden");
+  out.textContent = "HTTP " + status + "\n" + JSON.stringify(data, null, 2);
+  if (status === 200 && data.id) { sessionId = data.id; $("step2").classList.remove("hidden"); }
+};
+
+$("pay").onclick = async () => {
+  const btn = $("pay"); btn.disabled = true;
+  const { status, data } = await post("/api/payments", {
+    sessionId,
+    paymentMethod: {
+      type: "scheme",
+      number: $("pan").value,
+      expiryMonth: $("expM").value,
+      expiryYear: $("expY").value,
+      cvc: $("cvc").value,
+      holderName: $("holder").value
+    }
+  });
+  btn.disabled = false;
+  const out = $("payOut"); out.classList.remove("hidden");
+  out.textContent = "HTTP " + status + "\n" + JSON.stringify(data, null, 2);
+  if (status === 200) {
+    $("step3").classList.remove("hidden");
+    $("resultLine").innerHTML = data.resultCode === "Authorised"
+      ? '<p class="ok">Authorised. pspReference: ' + data.pspReference + "</p>"
+      : '<p class="bad">Refused. Reason: ' + (data.refusalReason || "unknown") + "</p>";
+    fetchHooks();
+  }
+};
+
+async function fetchHooks() {
+  const r = await fetch("/api/notifications");
+  const data = await r.json();
+  $("hooksOut").textContent = JSON.stringify(data, null, 2);
+}
+$("refreshHooks").onclick = fetchHooks;
+</script>
+</body>
+</html>

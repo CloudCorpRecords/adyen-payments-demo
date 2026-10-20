@@ -1,0 +1,1 @@
+{"description":"Independent DevRel-style teaching demo of an Adyen-style Sessions/Drop-in payments flow. All payments simulated. Not affiliated with Adyen.","engines":{"node":">=22.6"},"license":"MIT","name":"adyen-devrel-sessions-demo","scripts":{"start":"node src/server.ts","test":"node --test tests/*.test.ts"},"type":"module","version":"0.1.0"}
